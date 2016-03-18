@@ -6,6 +6,16 @@
  */
 
 /**
+ * Implements hook_rules_action_info_alter()
+ *
+ * We need to alter some default rules set by commerce_license
+ * In order to deal with the
+ */
+function eldis_job_rules_action_info_alter(&$actions) {
+  $actions['commerce_license_activate_order_licenses']['callbacks']['execute'] = 'eldis_job_activate_order_licenses';
+}
+
+/**
  * Implements hook_rules_event_info().
  *
  * Define some events that can be used to trigger actions
@@ -14,9 +24,10 @@
 function eldis_job_rules_event_info() {
   $events = array();
 
+  /*
   $events['eldis_license_sponsored_new_suspended'] = array(
     'label' => t('After suspending a newly created sponsored license'),
-    'group' => t('Eldis jobs'),
+    'group' => t('Eldis job'),
     'variables' => array(
       'commerce_license' => array(
         'type' => 'commerce_license',
@@ -24,7 +35,7 @@ function eldis_job_rules_event_info() {
       ),
     ),
   );
-
+*/
   return $events;
 }
 
@@ -33,166 +44,164 @@ function eldis_job_rules_event_info() {
  */
 function eldis_job_rules_action_info() {
   $actions = array();
-  $actions['eldis_job_license_suspend_sponsored'] = array(
-    'label' => t('Set the state of a new "Sponsored" license to "Suspended"'),
-    'parameter' => array(
-      'commerce_license' => array(
-        'type' => 'commerce_license',
-        'label' => t('Newly created "sponsored" license'),
-      ),
-    ),
-    'group' => t('Eldis jobs'),
-    'callbacks' => array(
-      'execute' => 'eldis_job_license_suspend_sponsored',
-    ),
-  );
 
   $actions['eldis_job_license_revoke_pay_per_job'] = array(
-    'label' => t('Set the state of a "Pay per job" license to "Revoked"'),
+    'label' => t('Revoke a "Pay per job" license'),
     'parameter' => array(
       'node' => array(
-        'type' => 'job',
-        'label' => t('Newly created job'),
+        'type' => 'node',
+        'label' => t('The node that we have just added.'),
       ),
     ),
-    'group' => t('Eldis jobs'),
+    'group' => t('Eldis job'),
     'callbacks' => array(
       'execute' => 'eldis_job_license_revoke_pay_per_job',
     ),
   );
 
+  /*
+  $actions['eldis_job_license_prevent_duplicates'] = array(
+    'label' => t('Check for duplicate licenses and redirect if found'), // be careful with this
+    'parameter' => array(
+      'commerce_line_item' => array(
+        'type' => 'commerce_line_item',
+        'label' => t('The line item that we are trying to add.'),
+      ),
+    ),
+    'group' => t('Eldis job'),
+    'callbacks' => array(
+      'execute' => 'eldis_job_license_prevent_duplicates',
+    ),
+  );
+*/
   return $actions;
 }
 
 /**
- * Rules action callback: Suspend a Sponsored license
+ * Rules action callback: overrides commerce_license_activate_order_licenses
  *
- * Changes the status of the license that gets created for a Sponsored subscription
- * to COMMERCE_LICENSE_SUSPENDED in order that the "Sponsored" application can be
- * manually reviewed and then either "revoked" or "activated".
+ * Places in exceptions for the Sponsored type, activate manually
+ * following approval rather than automativally when order is completed
  *
- *
+ * @todo this gets executed twice due to the rules for free and
+ * normal licenses... what's the best way to do this just once?
+ * - this shouldn't actually happen once we are NOT paying 0
+ * i.e. when free orders are properly handled, this will happen only once.
  */
-function eldis_job_license_suspend_sponsored($commerce_license) {
+function eldis_job_activate_order_licenses($order) {
+  watchdog('eldis_job_activate_order_licenses', 'test');
+  $licenses = commerce_license_get_order_licenses($order);
+  foreach ($licenses as $license) {
 
-  // get type of referenced product, filter on product type
-  $commerce_license_wrapper = entity_metadata_wrapper('commerce_license', $commerce_license);
-  $product = $commerce_license_wrapper->product;
-  $sku = $product->sku->value();
+    $license_wrapper = entity_metadata_wrapper('commerce_license', $license);
+    $product = $license_wrapper->product->value();
 
-  /**
-   *
-  define('ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU', 'job_plan_sponsored');
-  define('ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU', 'job-plan-premium-subscription');
-  define('ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU', 'job-plan-premium-pay-per-post');
-   */
+    switch($product->sku) {
+      case ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU:
+        watchdog('sponsored', 'sponsored');
+        // @todo notify sponsored subscription is pending, to user
+        // @todo notify pending sponsored application to review, to backoffice
+        // @todo how to notify when license is actually activated, hook_entity_update()
 
-  // ensure we only do this for the Sponsored type
-  if($sku == ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU) {
-    // update the status
-    $commerce_license_wrapper->set();
+        continue;
 
-    // fire "initial" contact event to inform applicant
-    // "eldis_license_sponsored_new_suspended"
+      case ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU:
+        watchdog('pay per job', 'pay per job');
+        $license->activate();
+        // @todo notify pay per post subscription activated
+
+        break;
+      case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
+        watchdog('premium', 'premium');
+        $license->activate();
+        // @todo notify premium subscription activated
+
+        break;
+    }
   }
-
-
-
-
-
-  $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
-  $billing_start = $line_item_wrapper->cl_billing_start->value();
-  $billing_end = $line_item_wrapper->cl_billing_end->value();
-  $duration = $billing_end - $billing_start;
-  $billing_cycle = $line_item_wrapper->order->cl_billing_cycle->value();
-  commerce_license_billing_prorate_line_item($line_item_wrapper, $duration, $billing_cycle);
 }
+
 
 /**
  * Rules action callback: Revoke context user's pay per job license.
- *
- * - get user from job
- * - get latest order from user
- * - get latest license from order
- * - update license
- *
- * - direct query to get latest license for this user
- * - check that it is of the required type
- * - load the license
- * -
  */
 function eldis_job_license_revoke_pay_per_job($job) {
 
   // get the user from the job
   $user = user_load($job->uid);
 
-  // Load the user latest order
-  $query = new EntityFieldQuery();
-  $query
-    ->entityCondition('entity_type', 'commerce_order', '=')
-    ->propertyCondition('uid', $account->uid, '=')
-    ->propertyCondition('status', array_keys(commerce_order_statuses(array('cart' => TRUE))), 'IN');
-
-  $result = $query->execute();
-
-  print_r($result);
-  exit;
-
-  if (!empty($result['commerce_order'])) {
-    foreach (commerce_order_load_multiple(array_keys($result['commerce_order'])) as $order) {
-      if ($order->mail != $account->mail) {
-        $order->mail = $account->mail;
-        commerce_order_save($order);
-      }
-    }
+  // return the users pay per job license, if exists. If not, move on.
+  if($license = eldis_job_user_has_pay_per_job_license($user)) {
+    // revoke the license
+    commerce_license_revoke_action($license);
+    // @todo notify that pay per job license has been used
+    drupal_set_message('You have just posted your single "Pay per post" job. Please consider purchasing a monthly subscription.');
+    watchdog('Revoke user pay per job license', $license->license_id);
   }
-
-
-
-
-
-  // check for a users active license, use EMW
-  // .. load commerce license
-  $licenses = commerce_license_get_order_licenses($result);
-  $license = array_unshift($licenses); // check that this would give
-
-  $wrapper = entity_metadata_wrapper('commerce_order', $order);
-  foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
-    if (isset($line_item_wrapper->commerce_license)) {
-      $license = $line_item_wrapper->commerce_license->value();
-      if ($license && (!$configurable || $license->isConfigurable())) {
-        $licenses[$license->license_id] = $license;
-      }
-    }
-  }
-
-  if($license)
-  // if license is pay per job
-  // load product and check sku (job-plan-premium-pay-per-post is the sku)
-
-  // set license status to revoke
-  commerce_license_revoke_action($license);
-
-  // @todo consider events to be fired here?
-
-
-  $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
-  $billing_start = $line_item_wrapper->cl_billing_start->value();
-  $billing_end = $line_item_wrapper->cl_billing_end->value();
-  $duration = $billing_end - $billing_start;
-  $billing_cycle = $line_item_wrapper->order->cl_billing_cycle->value();
-  commerce_license_billing_prorate_line_item($line_item_wrapper, $duration, $billing_cycle);
 }
 
 
 /**
- * Rules action callback helper
+ * Implements hook_commerce_line_item_presave().
  *
- * Check how many jobs have been created by this user
+ * Prevent duplicates
  */
-function eldis_jobs_count_users_jobs($user) {
-  // entity field query to get how many jobs user has
+function _eldis_job_commerce_line_item_presave($line_item) {
+
+  // This is not a license line item type, stop here.
+  if (!in_array($line_item->type, commerce_license_line_item_types())) {
+    return;
+  }
+
+  global $user;
+
+  // we need to prevent duplicate line items
+  // and prevent duplicate orders
+
+  $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+  $product = $line_item_wrapper->commerce_product->value();
+
+  /**
+   * for sponsored
+   * - prevent duplicate line item
+   */
 
 
-  return $count;
+  // check if we already have an ACTIVE license for this product
+  switch($product->sku) {
+    case ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU:
+      if(eldis_jobs_non_revoked_license_exists($product, $user)) {
+        drupal_set_message('Please create your single job before purchasing another Pay per Job License.');
+        drupal_goto('jobs/recruiter/choosejobplan2');
+      }
+      break;
+
+    case ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU:
+      // if we have an active sponsored sub
+      if(eldis_jobs_non_revoked_license_exists($product, $user)) {
+        drupal_set_message('You currently have an active Sponsored subscription, please post some jobs!');
+        drupal_goto('jobs/recruiter/choosejobplan');
+      }
+      // if we have a PENDING sponsored sub
+      if(eldis_jobs_non_revoked_license_exists($product, $user)) { // note we use a custom function that finds a license of either active or created state
+        drupal_set_message('You currently have an Sponsored subscription application that is pending review...');
+        eldis_job_empty_cart(); // remove the items that we've just added
+        drupal_goto('jobs/recruiter/choosejobplan');
+      }
+      break;
+
+    case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
+      if(eldis_jobs_non_revoked_license_exists($product, $user)) {
+
+        print('we have license');
+        exit;
+        drupal_set_message('You currently have an active Monthly subscription, please post some jobs!');
+        drupal_goto('jobs/recruiter/choosejobplan');
+      }
+      break;
+
+    default:
+      // unknown sku!
+
+  }
 }
