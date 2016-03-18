@@ -1,0 +1,96 @@
+<?php
+
+// Job plan products SKU contants
+define('ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU', 'job_plan_sponsored');
+define('ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU', 'job-plan-premium-subscription');
+define('ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU', 'job-plan-premium-pay-per-post');
+
+// Job plan limits
+define('ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_LIMIT', 1);
+
+/**
+ * Documentation of the drupal commerce setup for the three subscription types
+ *
+ * Each of the three following types of product has a single product display
+ * type and variation type and then a single instance of that type:
+ *
+ * Sponsored
+ * --------------------------
+ *
+ * Price £0.00. Purchasing gives the user a roll governing license that gives or
+ * removes the role "subscription sponsored" from the purchasing users account,
+ * according to the license status.
+ *
+ * License status is governed by time, back office administration, and Rules:
+ * - immediately that a license is created, it is set as "suspended" in order
+ * that backoffice can decide whether to approve or not.
+ *
+ * @see "eldis_jobs_suspend_sponsored_license" rules action callback for the logic.
+ *
+ *
+ * Subscription (premium)
+ * --------------------------
+ *
+ * ...
+ *
+ * @check continuous authority usage!!
+ *
+ *
+ * Pay per job
+ * --------------------------
+ *
+ * @todo after job creation, REMOVE license. Code rule to do this.
+ *
+ *
+ *
+ * @see "eldis_jobs_suspend_sponsored_license" rules action callback for the logic.
+ *
+ *
+ * Future subscription types, how to create
+ * ----------------------------------------
+ *
+ * There was mention of the possible requirement for a fourth subscription type
+ * similar to the pay-per-post job plan. Here's how to do that:
+ * 1. create the new product type
+ * 2. assign correct license type
+ * 3. setup rules ...
+ * @todo finish this later
+ *
+ *
+ *
+ * General todo's
+ * --------------
+ * @todo handle case where user without job creation rights hits /node/add/job
+ * something more than "access denied" should be shown
+ *
+ * @todo streamline the order process... bypass as much as possible for the Sponsored type
+ * who do not need to pay:
+ * - @todo automatic order completion once selecting "apply" (sponsored type)
+ * - @todo license will be created and "suspended"
+ * - @todo user can be direct to their dashboard with a message and email sent
+ *
+ * @todo warning message for deletion attempt of job on pay per job plan (as recreation
+ * not allowed as this would be post #2)
+ */
+
+/**
+ * Implements hook_form_alter()
+ *
+ * Alter the text of the "add to cart buttons"
+ */
+function eldis_job_form_alter(&$form, &$form_state, $form_id) {
+
+  // change the button text for the add to cart buttons
+  // Sponsored job plan
+  if(strpos($form_id, 'commerce_cart_add_to_cart_form_7') !== false) { // @note ids could change if products are recreated
+    $form['submit']['#value'] = t('Apply');
+  }
+  // Premium subscription job plan
+  if(strpos($form_id, 'commerce_cart_add_to_cart_form_5') !== false) {
+    $form['submit']['#value'] = t('Sign up');
+  }
+  // Premium pay per job posting plan
+  if(strpos($form_id, 'commerce_cart_add_to_cart_form_8') !== false) {
+    $form['submit']['#value'] = t('Sign up');
+  }
+}

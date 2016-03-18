@@ -1,0 +1,4 @@
+name = Eldis jobs
+description = Currently provides some rules definitions for license handling and minor UI tweaks
+core = 7.x
+package = Eldis
