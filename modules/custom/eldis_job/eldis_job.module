@@ -180,7 +180,6 @@ function eldis_job_user_has_pay_per_job_license($user) {
   }
 }
 
-
 /**
  * eldis_jobs_license_exists
  *
@@ -210,4 +209,66 @@ function eldis_jobs_license_of_status_exists($product, $account = NULL, $status)
   }
 
   return $results[$uid][$product_id];
+}
+
+/**
+ * Rules action callback: overrides commerce_license_activate_order_licenses
+ *
+ * Places in exceptions for the Sponsored type, activate manually
+ * following approval rather than automativally when order is completed
+ *
+ * @todo this gets executed twice due to the rules for free and
+ * normal licenses... what's the best way to do this just once?
+ * - this shouldn't actually happen once we are NOT paying 0
+ * i.e. when free orders are properly handled, this will happen only once.
+ */
+function eldis_job_activate_order_licenses($order) {
+
+  $licenses = commerce_license_get_order_licenses($order);
+  foreach ($licenses as $license) {
+
+    $license_wrapper = entity_metadata_wrapper('commerce_license', $license);
+    $product = $license_wrapper->product->value();
+
+    switch($product->sku) {
+      case ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU:
+        watchdog('sponsored', 'sponsored');
+        // @todo notify sponsored subscription is pending, to user
+        // @todo notify pending sponsored application to review, to backoffice
+        // @todo how to notify when license is actually activated, hook_entity_update()
+
+        continue;
+
+      case ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU:
+        watchdog('pay per job', 'pay per job');
+        $license->activate();
+        // @todo notify pay per post subscription activated
+
+        break;
+      case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
+        watchdog('premium', 'premium');
+        $license->activate();
+        // @todo notify premium subscription activated
+
+        break;
+    }
+  }
+}
+
+/**
+ * Rules action callback: Revoke context user's pay per job license.
+ */
+function eldis_job_license_revoke_pay_per_job($job) {
+
+  // get the user from the job
+  $user = user_load($job->uid);
+
+  // return the users pay per job license, if exists. If not, move on.
+  if($license = eldis_job_user_has_pay_per_job_license($user)) {
+    // revoke the license
+    commerce_license_revoke_action($license);
+    // @todo notify that pay per job license has been used
+    drupal_set_message('You have just posted your single "Pay per post" job. Please consider purchasing a monthly subscription.');
+    watchdog('Revoke user pay per job license', $license->license_id);
+  }
 }
