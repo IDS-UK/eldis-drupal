@@ -111,6 +111,8 @@ function eldis_job_form_alter(&$form, &$form_state, $form_id) {
  * without having an account
  * --> at the moment, enforcing registration before allowing selecting
  * products is probably good...
+ *
+ * @todo write logic to limit which
  */
 function eldis_job_show_add_to_cart($sku_button) {
   global $user;
@@ -214,13 +216,8 @@ function eldis_jobs_license_of_status_exists($product, $account = NULL, $status)
 /**
  * Rules action callback: overrides commerce_license_activate_order_licenses
  *
- * Places in exceptions for the Sponsored type, activate manually
+ * Places an exceptions for the Sponsored type, activate manually
  * following approval rather than automativally when order is completed
- *
- * @todo this gets executed twice due to the rules for free and
- * normal licenses... what's the best way to do this just once?
- * - this shouldn't actually happen once we are NOT paying 0
- * i.e. when free orders are properly handled, this will happen only once.
  */
 function eldis_job_activate_order_licenses($order) {
 
@@ -233,7 +230,12 @@ function eldis_job_activate_order_licenses($order) {
     switch($product->sku) {
       case ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU:
         watchdog('sponsored', 'sponsored');
+
         // @todo notify sponsored subscription is pending, to user
+        print 'test';
+        exit;
+        drupal_set_message('Your request for a sponsored subscription has been received, we will get back to you very soon!');
+
         // @todo notify pending sponsored application to review, to backoffice
         // @todo how to notify when license is actually activated, hook_entity_update()
 
