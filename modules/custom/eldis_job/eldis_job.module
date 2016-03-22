@@ -112,7 +112,9 @@ function eldis_job_form_alter(&$form, &$form_state, $form_id) {
  * --> at the moment, enforcing registration before allowing selecting
  * products is probably good...
  *
- * @todo write logic to limit which
+ * @todo make this a bit more efficient!
+ *
+ * This can easily be repurposed for validating "add to cart" form
  */
 function eldis_job_show_add_to_cart($sku_button) {
   global $user;
@@ -122,22 +124,34 @@ function eldis_job_show_add_to_cart($sku_button) {
     return true;
   }
 
-  // load a product
-  $product = commerce_product_load_by_sku($sku_button);
+  // load the three products
+  $product_sponsored = commerce_product_load_by_sku(ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU);
+  $product_subscription = commerce_product_load_by_sku(ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU);
+  $product_payperjob = commerce_product_load_by_sku(ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU);
 
+  // which products does this user have
+  $user_is_sponsored = eldis_jobs_license_of_status_exists($product_sponsored, $user, COMMERCE_LICENSE_CREATED)
+                    || eldis_jobs_license_of_status_exists($product_sponsored, $user, COMMERCE_LICENSE_ACTIVE);
+  $user_has_subscription = eldis_jobs_license_of_status_exists($product_subscription, $user, COMMERCE_LICENSE_ACTIVE);
+  $user_has_payperjob = eldis_jobs_license_of_status_exists($product_payperjob, $user, COMMERCE_LICENSE_ACTIVE);
+
+  // which button are we deciding to show or not
   switch($sku_button) {
     case ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU:
+      if($user_has_subscription || $user_has_payperjob || $user_is_sponsored) {
+        return false; // hide button
+      }
+      break;
     case ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU:
-    case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
-      if(
-        // if we have a license for this product of status active or created, then we cannot have another
-        eldis_jobs_license_of_status_exists($product, $user, COMMERCE_LICENSE_CREATED) ||
-        eldis_jobs_license_of_status_exists($product, $user, COMMERCE_LICENSE_ACTIVE)
-      ) {
+      if($user_has_subscription || $user_has_payperjob) {
         return false;
       }
       break;
-
+    case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
+      if($user_has_subscription) {
+        return false;
+      }
+      break;
     default:
       // unknown sku!
   }
