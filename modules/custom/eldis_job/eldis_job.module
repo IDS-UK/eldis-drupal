@@ -6,7 +6,6 @@ define('ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU', 'job-plan-premium-subs
 define('ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU', 'job-plan-premium-pay-per-post');
 define('ELDIS_JOB_PLAN_TRIAL_3_MONTH_SKU', 'job-plan-trial-3-month');
 
-
 // Job plan limits
 define('ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_LIMIT', 1);
 
@@ -293,8 +292,6 @@ function eldis_job_license_revoke_pay_per_job($job) {
     watchdog('Eldis license', 'Single job posted for pay per job license '.$license->license_id.'. License revoked');
   }
 }
-
-
 
 /**
  * Implements hook_entity_delete().
