@@ -290,7 +290,7 @@ function eldis_job_license_revoke_pay_per_job($job) {
     commerce_license_revoke_action($license);
     // @todo notify that pay per job license has been used
     drupal_set_message('You have just posted your single "Pay per post" job. Please consider purchasing a monthly subscription.');
-    watchdog('Eldis job', 'Revoke user pay per job license '.$license->license_id);
+    watchdog('Eldis license', 'Single job posted for pay per job license '.$license->license_id.'. License revoked');
   }
 }
 
@@ -305,9 +305,7 @@ function eldis_job_license_revoke_pay_per_job($job) {
  */
 function eldis_job_entity_delete($entity, $entity_type) {
 
-  print 'test';
-  exit;
-  if ($entity_type != 'license') {
+  if ($entity_type != 'commerce_license') {
     return;
   }
 
@@ -320,7 +318,7 @@ function eldis_job_entity_delete($entity, $entity_type) {
     if (isset($owner->roles[$role])) {
       unset($owner->roles[$role]);
       user_save($owner);
-      watchdog('Eldis license', 'Deleting (' . $entity->license_id . ') - removing role ' . $role);
+      watchdog('Eldis license', 'Delete license (' . $entity->license_id . ') - removing role '.$role.' from user '.$owner->uid);
     }
   }
 }
