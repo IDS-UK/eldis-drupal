@@ -4,6 +4,8 @@
 define('ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU', 'job-plan-sponsored');
 define('ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU', 'job-plan-premium-subscription');
 define('ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU', 'job-plan-premium-pay-per-post');
+define('ELDIS_JOB_PLAN_TRIAL_3_MONTH_SKU', 'job-plan-trial-3-month');
+
 
 // Job plan limits
 define('ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_LIMIT', 1);
@@ -111,6 +113,10 @@ function eldis_job_form_alter(&$form, &$form_state, $form_id) {
  * without having an account
  * --> at the moment, enforcing registration before allowing selecting
  * products is probably good...
+ *
+ * @todo make this a bit more efficient!
+ *
+ * This can easily be repurposed for validating "add to cart" form
  */
 function eldis_job_show_add_to_cart($sku_button) {
   global $user;
@@ -120,22 +126,34 @@ function eldis_job_show_add_to_cart($sku_button) {
     return true;
   }
 
-  // load a product
-  $product = commerce_product_load_by_sku($sku_button);
+  // load the three products
+  $product_sponsored = commerce_product_load_by_sku(ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU);
+  $product_subscription = commerce_product_load_by_sku(ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU);
+  $product_payperjob = commerce_product_load_by_sku(ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU);
 
+  // which products does this user have
+  $user_is_sponsored = eldis_jobs_license_of_status_exists($product_sponsored, $user, COMMERCE_LICENSE_CREATED)
+                    || eldis_jobs_license_of_status_exists($product_sponsored, $user, COMMERCE_LICENSE_ACTIVE);
+  $user_has_subscription = eldis_jobs_license_of_status_exists($product_subscription, $user, COMMERCE_LICENSE_ACTIVE);
+  $user_has_payperjob = eldis_jobs_license_of_status_exists($product_payperjob, $user, COMMERCE_LICENSE_ACTIVE);
+
+  // which button are we deciding to show or not
   switch($sku_button) {
     case ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU:
+      if($user_has_subscription || $user_has_payperjob || $user_is_sponsored) {
+        return false; // hide button
+      }
+      break;
     case ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU:
-    case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
-      if(
-        // if we have a license for this product of status active or created, then we cannot have another
-        eldis_jobs_license_of_status_exists($product, $user, COMMERCE_LICENSE_CREATED) ||
-        eldis_jobs_license_of_status_exists($product, $user, COMMERCE_LICENSE_ACTIVE)
-      ) {
+      if($user_has_subscription || $user_has_payperjob) {
         return false;
       }
       break;
-
+    case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
+      if($user_has_subscription) {
+        return false;
+      }
+      break;
     default:
       // unknown sku!
   }
@@ -214,13 +232,8 @@ function eldis_jobs_license_of_status_exists($product, $account = NULL, $status)
 /**
  * Rules action callback: overrides commerce_license_activate_order_licenses
  *
- * Places in exceptions for the Sponsored type, activate manually
- * following approval rather than automativally when order is completed
- *
- * @todo this gets executed twice due to the rules for free and
- * normal licenses... what's the best way to do this just once?
- * - this shouldn't actually happen once we are NOT paying 0
- * i.e. when free orders are properly handled, this will happen only once.
+ * Places an exceptions for the Sponsored type, activate manually
+ * following approval rather than automatically when order is completed
  */
 function eldis_job_activate_order_licenses($order) {
 
@@ -232,24 +245,32 @@ function eldis_job_activate_order_licenses($order) {
 
     switch($product->sku) {
       case ELDIS_JOB_PLAN_SPONSORED_PRODUCT_SKU:
-        watchdog('sponsored', 'sponsored');
-        // @todo notify sponsored subscription is pending, to user
+        watchdog('Eldis license', 'Notify sponsored license pending approval: user '.$product->uid);
+        drupal_set_message('Your request for a sponsored subscription has been received, we will get back to you very soon!');
+
         // @todo notify pending sponsored application to review, to backoffice
         // @todo how to notify when license is actually activated, hook_entity_update()
-
         continue;
 
       case ELDIS_JOB_PLAN_PREMIUM_PAY_PER_POST_PRODUCT_SKU:
-        watchdog('pay per job', 'pay per job');
+        watchdog('Eldis license', 'Activate license: '.$product->title.' user '.$product->uid);
         $license->activate();
         // @todo notify pay per post subscription activated
-
+        drupal_set_message('You have just purchased a single job posting license, please post your job: node/add/job');
         break;
+
       case ELDIS_JOB_PLAN_PREMIUM_SUBSCRIPTION_PRODUCT_SKU:
-        watchdog('premium', 'premium');
+        watchdog('Eldis license', 'Activate license: '.$product->title.' user '.$product->uid);
         $license->activate();
         // @todo notify premium subscription activated
+        drupal_set_message('Your subscription is now active, please post some jobs: node/add/job');
+        break;
 
+      case ELDIS_JOB_PLAN_TRIAL_3_MONTH_SKU:
+        watchdog('Eldis license', 'Activate license: '.$product->title.' user '.$product->uid);
+        $license->activate();
+        // @todo notify premium subscription activated
+        drupal_set_message('Trial activated for user: '.$product->uid);
         break;
     }
   }
@@ -269,6 +290,35 @@ function eldis_job_license_revoke_pay_per_job($job) {
     commerce_license_revoke_action($license);
     // @todo notify that pay per job license has been used
     drupal_set_message('You have just posted your single "Pay per post" job. Please consider purchasing a monthly subscription.');
-    watchdog('Revoke user pay per job license', $license->license_id);
+    watchdog('Eldis license', 'Single job posted for pay per job license '.$license->license_id.'. License revoked');
+  }
+}
+
+
+
+/**
+ * Implements hook_entity_delete().
+ *
+ * Be certain that roles are removed when a license is deleted
+ * @note something with rules caused this to stop working.
+ * This function is a simple failsafe.
+ */
+function eldis_job_entity_delete($entity, $entity_type) {
+
+  if ($entity_type != 'commerce_license') {
+    return;
+  }
+
+  // if this license has a user and associated product
+  if ($entity->uid && $entity->product_id) {
+    $role = $entity->wrapper->product->commerce_license_role->value();
+    $owner = $entity->wrapper->owner->value();
+
+    // if the owner has the role associated with this license, unset
+    if (isset($owner->roles[$role])) {
+      unset($owner->roles[$role]);
+      user_save($owner);
+      watchdog('Eldis license', 'Delete license (' . $entity->license_id . ') - removing role '.$role.' from user '.$owner->uid);
+    }
   }
 }
