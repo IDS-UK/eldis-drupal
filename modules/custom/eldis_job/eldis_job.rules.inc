@@ -49,15 +49,19 @@ function eldis_job_rules_action_info() {
     ),
   );
 
-  return $actions;
-}
+  $actions['eldis_job_activate_order_licenses'] = array(
+    'label' => t('Activate Eldis licenses and set messages'),
+    'parameter' => array(
+      'commerce_order' => array(
+        'type' => 'commerce_order',
+        'label' => t('The order'),
+      ),
+    ),
+    'group' => t('Eldis job'),
+    'callbacks' => array(
+      'execute' => 'eldis_job_activate_order_licenses',
+    ),
+  );
 
-/**
- * Implements hook_rules_action_info_alter()
- *
- * We need to alter some default rules set by commerce_license
- * In order to deal with the
- */
-function eldis_job_rules_action_info_alter(&$actions) {
-  $actions['commerce_license_activate_order_licenses']['callbacks']['execute'] = 'eldis_job_activate_order_licenses';
+  return $actions;
 }
